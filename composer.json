@@ -1,0 +1,33 @@
+{
+  "name": "rammewerk/hydrator",
+  "type": "library",
+  "description": "Strongly typed hydrator for PHP 8.3+.",
+  "homepage": "https://rammewerk.com",
+  "license": "MIT",
+  "keywords": [
+    "hydrator"
+  ],
+  "authors": [
+    {
+      "name": "Kristoffer Follestad",
+      "email": "kristoffer@rammewerk.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Rammewerk\\Component\\Hydrator\\": "src/"
+    },
+    "exclude-from-classmap": [
+      "tests/",
+      ".idea/"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Rammewerk\\Component\\Hydrator\\Tests\\": "tests/"
+    }
+  },
+  "require": {
+    "php": ">=8.3"
+  }
+}

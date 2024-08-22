@@ -131,4 +131,14 @@ abstract class Collection implements Countable, Iterator, ArrayAccess, JsonSeria
     #[Override] public function jsonSerialize(): string {
         return "Cannot serialize a model collection";
     }
+
+    /**
+     * Will hydrate all entities in the collection, and return them as an array
+     *
+     * @return TEntity[]
+     */
+    public function toArray(): array {
+        return array_map( [$this, 'getEntity'], array_keys( $this->source ) );
+    }
+
 }

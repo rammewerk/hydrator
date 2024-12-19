@@ -2,8 +2,8 @@
 
 namespace Rammewerk\Component\Hydrator\Error;
 
-use Exception;
+use LogicException;
 
-class HydratorException extends \LogicException {
+class HydratorException extends LogicException {
 
 }

@@ -15,9 +15,9 @@ final class HydratorCollection extends Collection {
      */
     public function __construct(
         private readonly Hydrator $hydrator,
-        protected array           $source
-    ) {
-    }
+        protected array $source
+    ) {}
+
 
 
     /**
@@ -26,7 +26,8 @@ final class HydratorCollection extends Collection {
      * @return TEntity
      */
     protected function getEntity(int $position) {
-        return $this->hydrator->hydrate( (array)$this->source[$position] );
+        return $this->hydrator->hydrate( $this->source[$position] );
     }
+
 
 }

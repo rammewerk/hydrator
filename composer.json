@@ -1,7 +1,7 @@
 {
   "name": "rammewerk/hydrator",
   "type": "library",
-  "description": "Strongly typed hydrator for PHP 8.3+.",
+  "description": "Strongly typed hydrator for PHP 8.4+.",
   "homepage": "https://rammewerk.com",
   "license": "MIT",
   "keywords": [
@@ -28,6 +28,10 @@
     }
   },
   "require": {
-    "php": ">=8.3"
+    "php": ">=8.4"
+  },
+  "require-dev": {
+    "phpstan/phpstan": "^2.1.0",
+    "phpunit/phpunit": "^11.5"
   }
 }

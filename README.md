@@ -221,7 +221,7 @@ foreach ($users as $user) {
 In the hydrator version, your IDE can autocomplete `$user` properties because it knows each user is a `User` object. It
 also ensures that only defined properties on the User entity are hydrated - no unexpected data creeping in.
 
-There’s no hidden `__call()` magic or dynamic property illusions - just strictly typed objects, so you always know
+> There’s no hidden `__call()` magic or dynamic property illusions - just strictly typed objects, so you always know
 exactly what data you’re working with.
 
 To achieve this, simply return a HydratorCollection from your repository:

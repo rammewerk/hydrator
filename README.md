@@ -172,7 +172,7 @@ public function __construct(
 ){}
 ```
 
-Read more on this below in the section about [side effects](#a-cautious-note-about-side-effects-when-using-hydrator).
+Read more on this below in the section about [object design](#be-mindful-of-object-design).
 
 ## Read only properties
 

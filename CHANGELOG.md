@@ -1,6 +1,14 @@
 CHANGELOG
 =========
 
+1.4.0
+---
+
+* Complete rewritten logic for faster hydration.
+* Support callback as a way to define data based on properties that will resolve.
+* Added support for Unit enums
+* Better test coverage
+
 1.3.0
 ---
 

@@ -11,10 +11,28 @@ final class IntProperty extends PropertyHandler {
 
 
     protected function getConverter(): Closure {
-        return static function (mixed $value): int {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to int');
-            return filter_var($value, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE)
-                ?? throw new HydratorException('Unable to convert value of ' . gettype($value) . ' to int');
+
+        /** @var int|null $default */
+        $default = $this->default ?? ($this->nullable ? null : 0);
+
+        return static function (mixed $value) use ($default): ?int {
+
+            $type = gettype($value);
+
+            if (is_string($value) && trim($value) === '') {
+                return $default;
+            }
+
+            if (is_scalar($value)) {
+                $value = filter_var($value, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE);
+            }
+
+            if (is_null($value)) {
+                return $default;
+            }
+
+            return is_int($value) ? $value : throw new HydratorException("Cannot convert $type value to int");
+
         };
     }
 

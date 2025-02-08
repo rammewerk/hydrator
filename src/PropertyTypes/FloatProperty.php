@@ -11,10 +11,28 @@ final class FloatProperty extends PropertyHandler {
 
 
     protected function getConverter(): Closure {
-        return static function (mixed $value): float {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to float');
-            return filter_var($value, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE)
-                ?? throw new HydratorException('Unable to convert value of ' . gettype($value) . ' to float');
+
+        /** @var float|null $default */
+        $default = $this->default ?? ($this->nullable ? null : 0.0);
+
+        return static function (mixed $value) use ($default): ?float {
+
+            $type = gettype($value);
+
+            if (is_string($value) && trim($value) === '') {
+                return $default;
+            }
+
+            if (is_scalar($value)) {
+                $value = filter_var($value, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE);
+            }
+
+            if (is_null($value)) {
+                return $default;
+            }
+
+            return is_float($value) ? $value : throw new HydratorException("Cannot convert $type value to int");
+
         };
     }
 

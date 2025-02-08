@@ -11,9 +11,26 @@ final class StringProperty extends PropertyHandler {
 
 
     protected function getConverter(): Closure {
-        return static function (mixed $value): string {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to string');
-            return (string)$value;
+
+        /** @var string|null $default */
+        $default = $this->default ?? ($this->nullable ? null : '');
+
+        return static function (mixed $value) use ($default): ?string {
+
+            if ($value === '') {
+                return $default;
+            }
+
+            if (is_scalar($value)) {
+                return (string)$value;
+            }
+
+            if (is_null($value)) {
+                return $default;
+            }
+
+            throw new HydratorException('Cannot convert non-scalar value to string');
+
         };
     }
 

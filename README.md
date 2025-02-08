@@ -390,3 +390,19 @@ the [MIT license](http://opensource.org/licenses/MIT).
 ----
 
 *Keywords: DTO, mapper, data-mapper and populator*
+
+## Converters
+
+- **String**
+    - Scalar (int, float, bool, string)
+    - Null will be converted to empty string, unless nullable
+- **Int**
+- **Float**
+- **Bool**
+- **DateTime**
+- **DateTimeImmutable**
+- **DateTimeZone**
+- **Enum**
+- **Union**
+- **Intersection**
+- **Array**

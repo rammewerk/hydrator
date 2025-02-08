@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+1.4.1
+---
+
+* Fixed bug with default and nullable values
+* Refactored the code to be more readable
+
 1.4.0
 ---
 

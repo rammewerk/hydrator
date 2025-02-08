@@ -14,14 +14,25 @@ final class DateTimeImmutableProperty extends PropertyHandler {
 
 
     protected function getConverter(): Closure {
-        return  static function (mixed $value): DateTimeImmutable {
+        $nullable = $this->nullable;
+        return static function (mixed $value) use ($nullable): ?DateTimeImmutable {
+
             if ($value instanceof DateTimeImmutable) return $value;
             if ($value instanceof DateTime) return DateTimeImmutable::createFromMutable($value);
+
+            if ($nullable && (is_null($value) || $value === '')) {
+                return null;
+            }
+
             # Check if it is int and timestamp
             if (is_int($value)) {
                 $value = "@$value";
             }
-            if (!is_string($value)) throw new HydratorException('DateTime must be a string, timestamp or DateTime object');
+
+            if (!is_string($value)) {
+                throw new HydratorException('DateTimeImmutable must be a string, timestamp, DateTime or DateTimeImmutable object. ' . gettype($value) . ' given');
+            }
+
             try {
                 return new DateTimeImmutable($value);
             } catch (Exception $e) {

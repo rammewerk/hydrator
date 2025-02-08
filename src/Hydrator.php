@@ -21,6 +21,7 @@ use Rammewerk\Component\Hydrator\PropertyTypes\UnionTypeProperty;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
+use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionProperty;
@@ -76,27 +77,32 @@ final class Hydrator {
             throw new HydratorException('Invalid hydration class', 0, $e);
         }
 
-        if (is_null($this->instance) && $constructor = $this->class->getConstructor()) {
-            $parameters = [];
-            foreach ($constructor->getParameters() as $parameter) {
-                try {
-                    $parameters[] = $this->getPropertyHandler($parameter);
-                } catch (ReflectionException $e) {
-                    throw new HydratorException('Unable to parse parameter: ' . $e->getMessage(), $e->getCode(), $e);
-                }
-            }
-            $this->parameters = $this->getConstructorArguments($parameters);
+        if (is_null($this->instance) && $const = $this->class->getConstructor()) {
+            $this->setParameterHandler($const);
         }
 
         foreach ($this->class->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            /** Promoted type, will be handled by the constructor */
-            if ($property->isPromoted()) continue;
-            try {
-                $this->properties[$property->getName()] = $this->getPropertyHandler($property);
-            } catch (ReflectionException $e) {
-                throw new HydratorException('Unable to define property: ' . $property->getName(), $e->getCode(), $e);
-            }
+            /** Promoted types are handled by constructor | Static properties are not handled */
+            if ($property->isPromoted() || $property->isStatic()) continue;
+            $this->properties[$property->getName()] = $this->getPropertyHandler($property);
         }
+
+    }
+
+
+
+    /**
+     * @param ReflectionMethod $const
+     *
+     * @return void
+     */
+    private function setParameterHandler(ReflectionMethod $const): void {
+
+        $parameters = array_map(function ($parameter) {
+            return $this->getPropertyHandler($parameter);
+        }, $const->getParameters());
+
+        $this->parameters = $this->getConstructorArguments($parameters);
 
     }
 
@@ -111,32 +117,30 @@ final class Hydrator {
      */
     public function hydrate(array $data = [], ?callable $callback = null) {
 
-        $instance = $this->instance ? clone $this->instance : $this->instance($data, $callback);
-
         /* Remove null-values from the dataset, use default values instead (which might be null) */
         $data = array_filter($data, static fn($v) => !is_null($v));
 
+        $instance = $this->instance ? clone $this->instance : $this->instance($data, $callback);
+
         foreach ($this->properties as $property) {
 
-            // Copy value or get it from the callback
+            // Get given value from dataset, or use the callback
             $value = $data[$property->name] ?? ($callback ? $callback($property) : null);
 
             // Free up memory
             unset($data[$property->name]);
 
-            // Quick check if the property is initialized and should use the initialized value
-            if ((is_null($value) || $value === '') && $instance->{$property->name} !== $property->default) {
+            // All values should be optional if not set in the constructor
+            // So with an empty value we can skip the rest of the checks
+            if (is_null($value) || $value === '') {
                 continue;
             }
 
             try {
-                $instance->{$property->name} = !is_null($value)
-                    ? $property->convert($value)
-                    : $property->default;
-
+                $instance->{$property->name} = $property->convert($value);
             } catch (Throwable $e) {
                 throw new HydratorException(
-                    "Unable to hydrate property $property->name in class $property->className: " . $e->getMessage(),
+                    "Unable to hydrate '$property->name' in $property->className: " . $e->getMessage(),
                     $e->getCode(),
                     $e,
                 );
@@ -194,6 +198,7 @@ final class Hydrator {
                 }
 
                 return $param->default;
+
             }, $parameters);
         };
     }
@@ -219,40 +224,29 @@ final class Hydrator {
 
 
 
-    /**
-     * @throws ReflectionException
-     */
     public function getPropertyHandler(ReflectionProperty|ReflectionParameter $property): PropertyHandler {
 
         $handler = $this->getPropertyTypeHandler($property);
-        $handler->promoted = $property->isPromoted();
+
         $handler->className = $this->class->getName();
         $handler->name = $property->getName();
+        $handler->promoted = $property->isPromoted();
         $handler->nullable = $property->getType() && $property->getType()->allowsNull();
 
-        if ($property instanceof ReflectionParameter) {
-            $handler->default = $property->isOptional() ? $property->getDefaultValue() : null;
-        } else {
-            $handler->default = $property->getDefaultValue();
+        try {
+            if ($property instanceof ReflectionParameter) {
+                $handler->default = $property->isOptional() ? $property->getDefaultValue() : null;
+            } else {
+                $handler->default = $property->getDefaultValue();
+            }
+        } catch (ReflectionException $e) {
+            throw new HydratorException('Unable to get default value: ' . $e->getMessage(), $e->getCode(), $e);
         }
 
         $handler->generateConverter();
 
         return $handler;
 
-    }
-
-
-
-    /**
-     * @param ReflectionNamedType[]|ReflectionIntersectionType[]|ReflectionType[] $types
-     *
-     * @return string[]
-     */
-    public function extractMultipleTypes(array $types): array {
-        return array_map(static fn($type) => $type->getName(),
-            array_filter($types, static fn($type) => $type instanceof ReflectionNamedType),
-        );
     }
 
 
@@ -288,6 +282,19 @@ final class Hydrator {
         }
 
         return new UndefinedProperty();
+    }
+
+
+
+    /**
+     * @param ReflectionNamedType[]|ReflectionIntersectionType[]|ReflectionType[] $types
+     *
+     * @return string[]
+     */
+    public function extractMultipleTypes(array $types): array {
+        return array_map(static fn($type) => $type->getName(),
+            array_filter($types, static fn($type) => $type instanceof ReflectionNamedType),
+        );
     }
 
 

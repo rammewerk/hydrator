@@ -15,8 +15,14 @@ final class ClassProperty extends PropertyHandler {
     protected function getConverter(): Closure {
         /** @var class-string $type */
         $type = $this->type;
-        return static function (mixed $value) use ($type) {
+        $nullable = $this->nullable;
+        return static function (mixed $value) use ($type, $nullable) {
             if ($value instanceof $type) return $value;
+
+            if ($nullable && (is_null($value) || $value === '')) {
+                return null;
+            }
+
             if (is_array($value) && class_exists($type)) {
                 try {
                     /** @var array<string, mixed> $value */

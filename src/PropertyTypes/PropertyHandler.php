@@ -11,12 +11,12 @@ abstract class PropertyHandler {
 
     private ?Closure $converter = null;
 
-    public string $name = '';
-    public bool $promoted = false;
-    public mixed $default = null;
-    public bool $nullable = false;
     public string $className = '';
+    public string $name = '';
     public string $type = '';
+    public bool $promoted = false;
+    public bool $nullable = false;
+    public mixed $default = null;
 
 
 

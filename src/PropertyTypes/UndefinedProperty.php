@@ -11,7 +11,9 @@ final class UndefinedProperty extends PropertyHandler {
 
     protected function getConverter(): Closure {
         $type = $this->type;
-        return static function (mixed $value) use ($type): mixed {
+        $default = $this->default;
+
+        return static function (mixed $value) use ($type, $default): mixed {
 
             if ($type && is_subclass_of($type, BackedEnum::class)) {
                 $property = new BackEnumProperty();
@@ -34,6 +36,11 @@ final class UndefinedProperty extends PropertyHandler {
                 $property->generateConverter();
                 return $property->convert($value);
             }
+
+            if (is_null($value) || $value === '') {
+                return $default;
+            }
+
             return $value;
         };
     }

@@ -1,13 +1,5 @@
 services:
 
-  composer:
-    image: composer:latest
-    profiles: [composer]
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: update
-
   php:
     image: dunglas/frankenphp
     container_name: rw_hydrator

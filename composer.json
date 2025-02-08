@@ -28,7 +28,8 @@
     }
   },
   "require": {
-    "php": ">=8.4"
+    "php": ">=8.4",
+    "ext-ctype": "*"
   },
   "require-dev": {
     "phpstan/phpstan": "^2.1.0",

@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace Rammewerk\Component\Hydrator;
 
-use BackedEnum;
 use Closure;
-use DateTime;
-use DateTimeImmutable;
-use DateTimeZone;
-use Exception;
-use JsonException;
 use Rammewerk\Component\Hydrator\Error\HydratorException;
+use Rammewerk\Component\Hydrator\PropertyTypes\ArrayProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\BoolProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\DateTimeImmutableProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\DateTimeProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\DateTimeZoneProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\FloatProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\IntersectionProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\IntProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\PropertyHandler;
+use Rammewerk\Component\Hydrator\PropertyTypes\StringProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\UndefinedProperty;
+use Rammewerk\Component\Hydrator\PropertyTypes\UnionTypeProperty;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionIntersectionType;
@@ -34,25 +40,16 @@ final class Hydrator {
     /** @var ReflectionClass<T> */
     private readonly ReflectionClass $class;
 
-    /** @var T|null */
+    /** @var T|null
+     * @noinspection PhpDocFieldTypeMismatchInspection
+     */
     private ?object $instance = null;
 
-    /** @var null|Closure(array<string, mixed>):mixed[] */
+    /** @var null|Closure(array<string, mixed>, ?callable):array<mixed> */
     private ?Closure $parameters = null;
 
-    private ?Closure $requiredProperties = null;
-
-    /** @var array<string, ReflectionProperty> List of all properties in the class */
+    /** @var array<string, PropertyHandler> */
     private array $properties = [];
-
-    /** @var array<string, Closure> Converters for each property */
-    private array $converters = [];
-
-    /** @var array<string, mixed> Default values for each property */
-    private array $defaultValues = [];
-
-    /** @var array<string, class-string> Array mappings */
-    private array $arrayMappings = [];
 
 
 
@@ -65,6 +62,7 @@ final class Hydrator {
      * @param class-string<T>|T $entity
      *
      * @throws HydratorException
+     * @noinspection PhpDocSignatureInspection
      */
     public function __construct(object|string $entity) {
 
@@ -75,17 +73,30 @@ final class Hydrator {
         try {
             $this->class = new ReflectionClass($this->instance ?? $entity);
         } catch (ReflectionException $e) { // @phpstan-ignore-line
-            throw new HydratorException('Invalid hydration class', $e->getCode(), $e);
+            throw new HydratorException('Invalid hydration class', 0, $e);
         }
 
         if (is_null($this->instance) && $constructor = $this->class->getConstructor()) {
-            $this->parameters = $this->getConstructorArguments(
-                $this->parseParameters($constructor->getParameters()),
-            );
+            $parameters = [];
+            foreach ($constructor->getParameters() as $parameter) {
+                try {
+                    $parameters[] = $this->getPropertyHandler($parameter);
+                } catch (ReflectionException $e) {
+                    throw new HydratorException('Unable to parse parameter: ' . $e->getMessage(), $e->getCode(), $e);
+                }
+            }
+            $this->parameters = $this->getConstructorArguments($parameters);
         }
 
-        $this->setRequiredProperties();
-        $this->setPropertyConverters();
+        foreach ($this->class->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            /** Promoted type, will be handled by the constructor */
+            if ($property->isPromoted()) continue;
+            try {
+                $this->properties[$property->getName()] = $this->getPropertyHandler($property);
+            } catch (ReflectionException $e) {
+                throw new HydratorException('Unable to define property: ' . $property->getName(), $e->getCode(), $e);
+            }
+        }
 
     }
 
@@ -98,47 +109,34 @@ final class Hydrator {
      *
      * @return T
      */
-    public function hydrate(array $data) {
+    public function hydrate(array $data = [], ?callable $callback = null) {
 
-        $instance = $this->instance ? clone $this->instance : $this->instance($data);
-
-        if ($this->requiredProperties) {
-            ($this->requiredProperties)($instance, $data);
-        }
+        $instance = $this->instance ? clone $this->instance : $this->instance($data, $callback);
 
         /* Remove null-values from the dataset, use default values instead (which might be null) */
         $data = array_filter($data, static fn($v) => !is_null($v));
 
-        /** Only keep properties that are defined in the class, and include default values */
-        $data = array_merge($this->defaultValues, array_intersect_key($data, $this->defaultValues));
+        foreach ($this->properties as $property) {
 
-        foreach ($this->properties as $name => $property) {
+            // Copy value or get it from the callback
+            $value = $data[$property->name] ?? ($callback ? $callback($property) : null);
 
-            /**
-             * Do not overwrite set values if initialized with another value than the default
-             * This is to prevent overwriting values that are set by the constructor
-             */
-            if ($property->hasDefaultValue() && $property->getValue($instance) !== $property->getDefaultValue()) {
-                continue;
-            }
+            // Free up memory
+            unset($data[$property->name]);
 
-            if (!array_key_exists($name, $data)) $data[$name] = null;
-
-            /* Quick check if the property is initialized and should use the initialized value */
-            if ((is_null($data[$name]) || $data[$name] === '') && $property->isInitialized($instance)) {
-                continue;
-            }
-
-            if (is_null($data[$name])) {
-                $property->setValue($instance, null);
+            // Quick check if the property is initialized and should use the initialized value
+            if ((is_null($value) || $value === '') && $instance->{$property->name} !== $property->default) {
                 continue;
             }
 
             try {
-                $property->setValue($instance, $this->converters[$name]($data[$name]));
-            } catch (HydratorException $e) {
+                $instance->{$property->name} = !is_null($value)
+                    ? $property->convert($value)
+                    : $property->default;
+
+            } catch (Throwable $e) {
                 throw new HydratorException(
-                    "Unable to hydrate property $name in class " . $this->class->getName() . ": " . $e->getMessage(),
+                    "Unable to hydrate property $property->name in class $property->className: " . $e->getMessage(),
                     $e->getCode(),
                     $e,
                 );
@@ -153,38 +151,23 @@ final class Hydrator {
 
 
     /**
-     * @param string $property
+     * @param string $property_name
      * @param class-string $class
      *
      * @return Hydrator<T>
      * @immutable
      */
-    public function mapArray(string $property, string $class): Hydrator {
-        $c = clone $this;
-        $c->arrayMappings[$property] = $class;
-        $c->setPropertyConverters();
-        return $c;
-    }
-
-
-
-    /**
-     * @param ReflectionParameter[] $parameters
-     *
-     * @return array{0: non-empty-string, 1:bool, 2:mixed}[]
-     */
-    private function parseParameters(array $parameters): array {
-        return array_map(static function (ReflectionParameter $parameter): array {
-            try {
-                return [
-                    $parameter->getName(),
-                    $parameter->isPromoted(),
-                    $parameter->isOptional() ? $parameter->getDefaultValue() : null,
-                ];
-            } catch (ReflectionException $e) {
-                throw new HydratorException('Unable to parse parameter: ' . $e->getMessage(), $e->getCode(), $e);
-            }
-        }, $parameters);
+    public function mapArray(string $property_name, string $class): Hydrator {
+        if (!isset($this->properties[$property_name])) {
+            throw new HydratorException("Trying to map array on a property that does not exist: $property_name");
+        }
+        $property = &$this->properties[$property_name];
+        if ($property instanceof ArrayProperty) {
+            $property->mapEntity = $class;
+            $property->generateConverter();
+            return $this;
+        }
+        throw new HydratorException("Trying to map array on a property that is not an array: $property_name");
     }
 
 
@@ -192,60 +175,27 @@ final class Hydrator {
     /**
      * Create an array of arguments for the constructor
      *
-     * @param array{0: non-empty-string, 1:bool, 2:mixed}[] $parameters
+     * @param PropertyHandler[] $parameters
      *
-     * @return Closure
+     * @return Closure(array<string, mixed>, ?callable):array<mixed>
      */
     private function getConstructorArguments(array $parameters): Closure {
-        return static function (array &$data) use ($parameters): array {
-            $args = [];
-            foreach ($parameters as [$name, $promoted, $default]) {
-                if ($promoted && array_key_exists($name, $data)) {
-                    $args[] = $data[$name] ?? $default;
-                    unset($data[$name]);
-                } else {
-                    $args[] = $default;
+        return static function (array &$data, ?callable $callback) use ($parameters): array {
+            return array_map(static function ($param) use (&$data, $callback) {
+
+                if ($param->promoted && $callback) {
+                    return $param->convert($callback($param));
                 }
-            }
-            return $args;
+
+                if ($param->promoted && array_key_exists($param->name, $data)) {
+                    $value = $param->convert($data[$param->name]);
+                    unset($data[$param->name]);
+                    return $value;
+                }
+
+                return $param->default;
+            }, $parameters);
         };
-    }
-
-
-
-    private function setRequiredProperties(): void {
-
-        $defaults = $this->class->getDefaultProperties();
-        $properties = array_filter(
-            $this->class->getProperties(),
-            static function (\ReflectionProperty $property) use ($defaults) {
-
-                if ($property->isPromoted()) {
-                    return false; // Promoted type, will be handled by the constructor
-                }
-
-                if (isset($defaults[$property->getName()])) {
-                    return false; // Default value exists
-                }
-
-                if ($property->getType() && $property->getType()->allowsNull()) {
-                    return false; // Nullable type
-                }
-
-                return true; // Required if no default and not nullable
-
-            });
-
-        $className = $this->class->getName();
-
-        $this->requiredProperties = static function (object $instance, array $data) use ($properties, $className): void {
-            foreach ($properties as $property) {
-                if (array_key_exists($property->getName(), $data)) continue;
-                if ($property->isInitialized($instance)) continue;
-                throw new HydratorException("Property '{$property->getName()}' is required when hydrating class '$className'");
-            }
-        };
-
     }
 
 
@@ -256,300 +206,89 @@ final class Hydrator {
      * @return T
      * @throws HydratorException
      */
-    private function instance(array &$data) {
+    private function instance(array &$data, ?callable $callback) {
         try {
             if ($parameterClosure = $this->parameters) {
-                return $this->class->newInstanceArgs($parameterClosure($data));
+                return $this->class->newInstanceArgs($parameterClosure($data, $callback));
             }
             return $this->class->newInstance();
         } catch (ReflectionException $e) {
-            throw new HydratorException('Unable to generate an instance of entity: ' . $e->getMessage(), $e->getCode(), $e);
+            throw new HydratorException('Unable to generate an instance of entity: ' . $e->getMessage(), 0, $e);
         }
     }
 
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | Handle types
-    |--------------------------------------------------------------------------
-    */
-
-    private function handleArray(string $property_name): Closure {
-        $mapEntity = $this->arrayMappings[$property_name] ?? null;
-        return static function (mixed $value) use ($mapEntity): array {
-
-            if ($mapEntity && is_array($value)) {
-                try {
-                    $childMapper = new Hydrator($mapEntity);
-                    return array_map(static function ($v) use ($childMapper) {
-                        /** @phpstan-ignore-next-line Ignore type of array */
-                        if (is_array($v)) return $childMapper->hydrate($v);
-                        throw new HydratorException('Not an array');
-                    }, $value);
-                } catch (\Throwable $e) {
-                    throw new HydratorException('Unable to hydrate child element of type: ' . $mapEntity);
-                }
-
-            }
-
-            if (is_array($value)) return $value;
-            if (is_object($value)) return (array)$value;
-
-
-            if (is_string($value) && !empty($value)) {
-                try {
-                    $value = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
-                } catch (JsonException $e) {
-                    throw new HydratorException('Unable to convert string to array', $e->getCode(), $e);
-                }
-            }
-
-            throw new HydratorException('Given value must be type array, object or string. Given value was of type ' . gettype($value));
-        };
-    }
-
-
-
-    private function handleString(): Closure {
-        return static function (mixed $value): ?string {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to string');
-            return (string)$value;
-        };
-    }
-
-
-
-    private function handleInt(): Closure {
-        return static function (mixed $value): int {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to int');
-            return filter_var($value, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE)
-                ?? throw new HydratorException('Unable to convert value of ' . gettype($value) . ' to int');
-        };
-    }
-
-
-
-    private function handleFloat(): Closure {
-        return static function (mixed $value): float {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to float');
-            return filter_var($value, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE)
-                ?? throw new HydratorException('Unable to convert value of ' . gettype($value) . ' to float');
-        };
-    }
-
-
-
-    private function handleBool(): Closure {
-        return static function (mixed $value): bool {
-            if (!is_scalar($value)) throw new HydratorException('Cannot convert non-scalar value to bool');
-            return filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE)
-                ?? throw new HydratorException('Unable to convert value of ' . gettype($value) . ' to bool');
-        };
-    }
-
-
-
-    private function handleDateTime(): Closure {
-        return static function (mixed $value): DateTime {
-            if ($value instanceof DateTime) return $value;
-            # Check if it is int and timestamp
-            if (is_int($value)) $value = "@$value";
-            if (!is_string($value)) throw new HydratorException('DateTime must be a string, timestamp or DateTime object');
-            try {
-                return new DateTime($value);
-            } catch (Exception $e) {
-                throw new HydratorException('Unable to convert value to DateTime: ' . $e->getMessage(), $e->getCode(), $e);
-            }
-        };
-    }
-
-
-
-    private function handleDateTimeImmutable(): Closure {
-        return static function (mixed $value): DateTimeImmutable {
-            if ($value instanceof DateTimeImmutable) return $value;
-            # Check if it is int and timestamp
-            if (is_int($value)) {
-                $value = "@$value";
-            }
-            if (!is_string($value)) throw new HydratorException('DateTime must be a string, timestamp or DateTime object');
-            try {
-                return new DateTimeImmutable($value);
-            } catch (Exception $e) {
-                throw new HydratorException('Unable to convert value to DateTimeImmutable: ' . $e->getMessage(), $e->getCode(), $e);
-            }
-        };
-    }
-
-
-
-    private function handleDateTimeZone(): Closure {
-        return static function (mixed $value): DateTimeZone {
-            if (!is_string($value)) throw new HydratorException('DateTimeZone must be a string');
-            try {
-                return new DateTimeZone($value);
-            } catch (Exception $e) {
-                throw new HydratorException('Unable to convert value to DateTimeZone: ' . $e->getMessage(), $e->getCode(), $e);
-            }
-        };
-    }
-
-
-
     /**
-     * @param class-string<BackedEnum> $type
-     *
-     * @return Closure
+     * @throws ReflectionException
      */
-    private function handleEnum(string $type): Closure {
-        return static function (mixed $value) use ($type) {
-            if ($value instanceof $type) return $value;
-            if (is_string($value) || is_int($value)) {
-                return $type::from($value);
-            }
-            throw new HydratorException("Unable to convert value to $type");
-        };
-    }
+    public function getPropertyHandler(ReflectionProperty|ReflectionParameter $property): PropertyHandler {
 
+        $handler = $this->getPropertyTypeHandler($property);
+        $handler->promoted = $property->isPromoted();
+        $handler->className = $this->class->getName();
+        $handler->name = $property->getName();
+        $handler->nullable = $property->getType() && $property->getType()->allowsNull();
 
-
-    private function handleClass(string $type): Closure {
-        return static function (mixed $value) use ($type) {
-            if ($value instanceof $type) return $value;
-            if (is_array($value) && class_exists($type)) {
-                try {
-                    /** @var array<string, mixed> $value */
-                    return new Hydrator($type)->hydrate($value);
-                } catch (Throwable $e) {
-                    throw new HydratorException("Unable to hydrate child element of type $type: " . $e->getMessage(), $e->getCode(), $e);
-                }
-            }
-            throw new HydratorException("Unable to convert value to $type");
-        };
-    }
-
-
-
-    protected function handleUnresolved(string|null $type): Closure {
-        return function (mixed $value) use ($type): mixed {
-            /** @phpstan-ignore-next-line */
-            if ($type && enum_exists($type)) return $this->handleEnum($type)($value);
-            if ($type && class_exists($type)) return $this->handleClass($type)($value);
-            return $value;
-        };
-    }
-
-
-
-    /**
-     * @param ReflectionNamedType[]|ReflectionIntersectionType[] $getTypes
-     *
-     * @return Closure
-     */
-    private function handleUnionType(array $getTypes): Closure {
-        return static function (mixed $value) use ($getTypes) {
-            foreach ($getTypes as $type) {
-                if ($type instanceof ReflectionIntersectionType) {
-                    foreach ($type->getTypes() as $ic) {
-                        if (!$ic instanceof ReflectionNamedType) {
-                            continue 2;
-                        }
-                        $icName = $ic->getName();
-                        if (!$value instanceof $icName) {
-                            continue 2;
-                        }
-                    }
-                    return $value;
-                }
-
-                $typeName = $type->getName();
-                $checkFn = "is_$typeName";
-
-
-                if (function_exists($checkFn) && $checkFn($value)) {
-                    return $value;
-                }
-
-                if ($value instanceof $typeName) {
-                    return $value;
-                }
-            }
-            throw new HydratorException('Given value is not of any of the defined union types');
-        };
-    }
-
-
-
-    /**
-     * @param ReflectionType[] $getTypes
-     *
-     * @return Closure
-     */
-    private function handleIntersectionType(array $getTypes): Closure {
-        return static function (mixed $value) use ($getTypes) {
-            $isOfAllTypes = true;
-            foreach ($getTypes as $type) {
-                if (!$type instanceof ReflectionNamedType) {
-                    $isOfAllTypes = false;
-                } else {
-                    $typeName = $type->getName();
-                    if (!$value instanceof $typeName) {
-                        $isOfAllTypes = false;
-                    }
-                }
-
-
-            }
-            if ($isOfAllTypes) {
-                return $value;
-            }
-            throw new HydratorException('Given value is not of all of the defined intersection types');
-        };
-    }
-
-
-
-    private function setPropertyConverters(): void {
-        foreach ($this->class->getProperties() as $property) {
-
-            /** Promoted type, will be handled by the constructor */
-            if ($property->isPromoted()) continue;
-
-            $name = $property->getName();
-            $type = $property->getType();
-            $this->properties[$name] = $property;
-
-            /** Set required and default values */
-            $this->defaultValues[$name] = $property->hasDefaultValue() ? $property->getDefaultValue() : null;
-
-            if ($type instanceof ReflectionNamedType) {
-
-                $typeName = $type->getName();
-
-                $this->converters[$name] = match ($typeName) {
-                    'array'             => $this->handleArray($name),
-                    'string'            => $this->handleString(),
-                    'int'               => $this->handleInt(),
-                    'float'             => $this->handleFloat(),
-                    'bool'              => $this->handleBool(),
-                    'DateTime'          => $this->handleDateTime(),
-                    'DateTimeImmutable' => $this->handleDateTimeImmutable(),
-                    'DateTimeZone'      => $this->handleDateTimeZone(),
-                    default             => $this->handleUnresolved($typeName),
-                };
-
-            } else if ($type instanceof ReflectionUnionType) {
-                $this->converters[$name] = $this->handleUnionType($type->getTypes());
-            } else if ($type instanceof ReflectionIntersectionType) {
-                $this->converters[$name] = $this->handleIntersectionType($type->getTypes());
-            } else {
-                $this->converters[$name] = $this->handleUnresolved(null);
-            }
-
+        if ($property instanceof ReflectionParameter) {
+            $handler->default = $property->isOptional() ? $property->getDefaultValue() : null;
+        } else {
+            $handler->default = $property->getDefaultValue();
         }
+
+        $handler->generateConverter();
+
+        return $handler;
+
     }
 
+
+
+    /**
+     * @param ReflectionNamedType[]|ReflectionIntersectionType[]|ReflectionType[] $types
+     *
+     * @return string[]
+     */
+    public function extractMultipleTypes(array $types): array {
+        return array_map(static fn($type) => $type->getName(),
+            array_filter($types, static fn($type) => $type instanceof ReflectionNamedType),
+        );
+    }
+
+
+
+    private function getPropertyTypeHandler(ReflectionParameter|ReflectionProperty $property): PropertyHandler {
+
+        if ($property->getType() instanceof ReflectionNamedType) {
+            $handler = match ($property->getType()->getName()) {
+                'array'             => new ArrayProperty(),
+                'string'            => new StringProperty(),
+                'float'             => new FloatProperty(),
+                'int'               => new IntProperty(),
+                'bool'              => new BoolProperty(),
+                'DateTime'          => new DateTimeProperty(),
+                'DateTimeImmutable' => new DateTimeImmutableProperty(),
+                'DateTimeZone'      => new DateTimeZoneProperty(),
+                default             => new UndefinedProperty(),
+            };
+            $handler->type = $property->getType()->getName();
+            return $handler;
+        }
+
+        if ($property->getType() instanceof ReflectionUnionType) {
+            $handler = new UnionTypeProperty();
+            $handler->types = $this->extractMultipleTypes($property->getType()->getTypes());
+            return $handler;
+        }
+
+        if ($property->getType() instanceof ReflectionIntersectionType) {
+            $handler = new IntersectionProperty();
+            $handler->types = $this->extractMultipleTypes($property->getType()->getTypes());
+            return $handler;
+        }
+
+        return new UndefinedProperty();
+    }
 
 
 }

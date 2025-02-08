@@ -55,6 +55,7 @@ In return, we got a typed entity.
 This might be useful to automatically convert data from database to an entity, or from an API etc.
 
 ## Features
+
 - Reflection-based hydrator with caching
 - Converts scalars, date/time objects, enums, union/intersection types
 - Handles promoted/readonly properties, default/null values
@@ -63,11 +64,11 @@ This might be useful to automatically convert data from database to an entity, o
 - Full IDE autocompletion
 
 Benefits
+
 - Enhanced type safety via entities
 - Automatic class mapping from arrays
 - Clear IDE type hints
 - Improved code quality
-
 
 ## Allowed Property Types
 
@@ -77,9 +78,13 @@ as integers). It supports:
 - **Built-in types**: `string`, `int`, `float`, `bool`, `array`
 - **Date types**: `DateTime`, `DateTimeImmutable`, `DateTimeZone`
 - **Backed enums** - Using the enum’s `from()` method
+- **Unit enums** - Using the enum’s case name as matching value
 - **Union/Intersection types** (e.g., `string|int`, `InterfaceA&InterfaceB`)
 - **Classes** (e.g., `public AnotherClass $class`) — nested objects are hydrated if valid data is provided
 - **Arrays of classes** via the `mapArray()` method. [More about nested objects here.](#nested-hydration)
+
+***Note**: One should try not to use union/intersection types, as they may lead to unexpected results. Use with
+caution.*
 
 ## Nested hydration
 
@@ -222,7 +227,7 @@ In the hydrator version, your IDE can autocomplete `$user` properties because it
 also ensures that only defined properties on the User entity are hydrated - no unexpected data creeping in.
 
 > There’s no hidden `__call()` magic or dynamic property illusions - just strictly typed objects, so you always know
-exactly what data you’re working with.
+> exactly what data you’re working with.
 
 To achieve this, simply return a HydratorCollection from your repository:
 
@@ -332,6 +337,33 @@ class Entity {
 
 If the hydrator is given ['age' => 20], it won’t override age (already set to 18 by the constructor). This behavior
 ensures constructor-defined values are respected.
+
+## Hydrator Callback for More Customizable Hydration
+
+The hydrator can be used as a callback, returning the hydrated object. The first parameter of `hydrate()` is an
+array of data to hydrate with, and the second parameter is a callback that customizes hydration.
+
+**Note:** Data given in the first parameter will override values returned by the callback.
+
+### Example Usage
+
+```php
+
+$data = ['name' => 'Johnny'];
+
+$postData = $_POST;
+unset($postData['_token']);
+
+$entity = $hydrator->hydrate($data, static fn(PropertyHandler $prop) => match ($prop->name) {
+    'email' => $postData['email_address'] ?? null,
+    // 'name' will be ignored because it is set in the first parameter.
+    'name' => $postData['first_name'] ?? null, 
+    default => null,
+});
+```
+
+By using this approach, you can define a default set of properties in the first parameter, while the callback provides
+additional values that are used unless explicitly overridden by the initial array.
 
 ## Error handling
 

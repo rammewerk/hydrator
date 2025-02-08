@@ -8,7 +8,8 @@ use DateTimeZone;
 use PHPUnit\Framework\TestCase;
 use Rammewerk\Component\Hydrator\Error\HydratorException;
 use Rammewerk\Component\Hydrator\Hydrator;
-use Rammewerk\Component\Hydrator\Tests\Fixture\ArrayEntity;
+use Rammewerk\Component\Hydrator\HydratorCollection;
+use Rammewerk\Component\Hydrator\PropertyTypes\PropertyHandler;
 use Rammewerk\Component\Hydrator\Tests\Fixture\ArrayMapEntity;
 use Rammewerk\Component\Hydrator\Tests\Fixture\BooleanEntity;
 use Rammewerk\Component\Hydrator\Tests\Fixture\ConstructorEntity;
@@ -52,6 +53,8 @@ class HydratorTest extends TestCase {
         $this->assertSame('first', $hydrated->intersectClasses[0]->string);
         $this->assertSame('second', $hydrated->intersectClasses[1]->string);
         $this->assertSame('third', $hydrated->intersectClasses[2]->string);
+
+
     }
 
 
@@ -130,6 +133,28 @@ class HydratorTest extends TestCase {
             'enumStringOrNull' => 'b',
             'enumIntOrNull'    => 3,
         ]);
+        $this->assertSame(EnumString::A, $hydrated->enumString);
+        $this->assertSame(EnumInt::A, $hydrated->enumInt);
+        $this->assertSame(EnumString::B, $hydrated->enumStringOrNull);
+        $this->assertSame(EnumInt::C, $hydrated->enumIntOrNull);
+    }
+
+
+
+    public function testEnumEntityCallback(): void {
+        $hydrator = new Hydrator(EnumEntity::class);
+        $hydrated = $hydrator->hydrate([
+            // Will override the callback
+            'enumString' => EnumString::A,
+        ], function (PropertyHandler $prop) {
+            return match ($prop->name) {
+                'enumString'       => EnumString::B, // Will be ignored
+                'enumInt'          => EnumInt::A,
+                'enumStringOrNull' => 'b',
+                'enumIntOrNull'    => 3,
+                default            => null,
+            };
+        });
         $this->assertSame(EnumString::A, $hydrated->enumString);
         $this->assertSame(EnumInt::A, $hydrated->enumInt);
         $this->assertSame(EnumString::B, $hydrated->enumStringOrNull);
@@ -226,6 +251,24 @@ class HydratorTest extends TestCase {
         $this->assertSame(100, $hydrated->mixed);
     }
 
+
+
+    public function testHydratorCollection(): void {
+        $hydrator = new Hydrator(StringEntity::class);
+        $data = [
+            ['string' => 'first'],
+            ['string' => 'second'],
+            ['string' => 'third'],
+        ];
+        /** @var HydratorCollection<StringEntity> $collection */
+        $collection = new HydratorCollection($hydrator, $data);
+        $this->assertCount(3, $collection);
+        $i = 0;
+        foreach( $collection as $entity ) {
+            $this->assertSame($data[$i++]['string'], $entity->string);
+            $this->assertInstanceOf(StringEntity::class, $entity);
+        }
+    }
 
 
 }

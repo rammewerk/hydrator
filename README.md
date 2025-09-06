@@ -81,7 +81,7 @@ as integers). It supports:
 - **Unit enums** - Using the enum’s case name as matching value
 - **Union/Intersection types** (e.g., `string|int`, `InterfaceA&InterfaceB`)
 - **Classes** (e.g., `public AnotherClass $class`) — nested objects are hydrated if valid data is provided
-- **Arrays of classes** via the `mapArray()` method. [More about nested objects here.](#nested-hydration)
+- **Arrays of classes** via the `ArrayOf()` attribute. [More about nested objects here.](#nested-hydration)
 
 ***Note**: One should try not to use union/intersection types, as they may lead to unexpected results. Use with
 caution.*
@@ -104,18 +104,19 @@ $hydrator = new Hydrator(OrderItems::class)->hydrate([
 ]);
 ```
 
-To handle an array of classes, you can use the built-in mapArray method:
+To handle an array of classes, you can use the built-in ArrayOf attribute:
 
 ```php
+
+use Rammewerk\Component\Hydrator\Attribute\ArrayOf;
+
 class OrderItem {
     /** @var Product[] */
+    #[ArrayOf(Product::class)]
     public array $products = [];
 }
 
 $hydrator = new Hydrator(OrderItem::class);
-
-// Notice: the mapArray is an immutable method, so we need to assign the result
-$hydrator = $hydrator->mapArray('products', Product::class);
 
 $orderItem = $hydrator->hydrate([
     'order_id' => 100,

@@ -41,7 +41,6 @@ class HydratorTest extends TestCase {
 
     public function testArrayMapEntity(): void {
         $hydrator = new Hydrator(ArrayMapEntity::class);
-        $hydrator = $hydrator->mapArray('intersectClasses', IntersectClassA::class);
         $hydrated = $hydrator->hydrate(['intersectClasses' => [
             ['string' => 'first'],
             ['string' => 'second'],

@@ -21,6 +21,7 @@
         <testsuite name="Rammewerk Hydrator Test Suite">
             <directory>./tests/</directory>
             <exclude>./tests/Fixture</exclude>
+            <exclude>./tests/TestData</exclude>
         </testsuite>
     </testsuites>
 

@@ -33,6 +33,11 @@ abstract class PropertyHandler {
     }
 
 
+    /** Allow Hydrator to override the converter via attributes */
+    public function useCustomConverter(\Closure $converter): void {
+        $this->converter = $converter;
+    }
+
 
     abstract protected function getConverter(): Closure;
 

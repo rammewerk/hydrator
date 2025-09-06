@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Rammewerk\Component\Hydrator;
 
 use Closure;
+use Rammewerk\Component\Hydrator\Attribute\ArrayOf;
 use Rammewerk\Component\Hydrator\Error\HydratorException;
 use Rammewerk\Component\Hydrator\PropertyTypes\ArrayProperty;
 use Rammewerk\Component\Hydrator\PropertyTypes\BoolProperty;
@@ -155,28 +156,6 @@ final class Hydrator {
 
 
     /**
-     * @param string $property_name
-     * @param class-string $class
-     *
-     * @return Hydrator<T>
-     * @immutable
-     */
-    public function mapArray(string $property_name, string $class): Hydrator {
-        if (!isset($this->properties[$property_name])) {
-            throw new HydratorException("Trying to map array on a property that does not exist: $property_name");
-        }
-        $property = &$this->properties[$property_name];
-        if ($property instanceof ArrayProperty) {
-            $property->mapEntity = $class;
-            $property->generateConverter();
-            return $this;
-        }
-        throw new HydratorException("Trying to map array on a property that is not an array: $property_name");
-    }
-
-
-
-    /**
      * Create an array of arguments for the constructor
      *
      * @param PropertyHandler[] $parameters
@@ -224,7 +203,7 @@ final class Hydrator {
 
 
 
-    public function getPropertyHandler(ReflectionProperty|ReflectionParameter $property): PropertyHandler {
+    private function getPropertyHandler(ReflectionProperty|ReflectionParameter $property): PropertyHandler {
 
         $handler = $this->getPropertyTypeHandler($property);
 
@@ -241,6 +220,15 @@ final class Hydrator {
             }
         } catch (ReflectionException $e) {
             throw new HydratorException('Unable to get default value: ' . $e->getMessage(), $e->getCode(), $e);
+        }
+
+        if (($property instanceof ReflectionProperty) && $handler instanceof ArrayProperty) {
+            $arrayOfAttribute = $property->getAttributes(ArrayOf::class)[0] ?? null;
+            if ($arrayOfAttribute) {
+                /** @var ArrayOf $arr */
+                $arr = $arrayOfAttribute->newInstance();
+                $handler->mapEntity = $arr->class;
+            }
         }
 
         $handler->generateConverter();
@@ -291,10 +279,30 @@ final class Hydrator {
      *
      * @return string[]
      */
-    public function extractMultipleTypes(array $types): array {
+    private function extractMultipleTypes(array $types): array {
         return array_map(static fn($type) => $type->getName(),
             array_filter($types, static fn($type) => $type instanceof ReflectionNamedType),
         );
+    }
+
+
+
+    /**
+     * @param string $jsonData
+     *
+     * @return T
+     */
+    public function hydrateFromJson(string $jsonData) {
+        try {
+            $data = json_decode($jsonData, true, 512, JSON_THROW_ON_ERROR);
+            if (is_array($data)) {
+                /** @var array<string, mixed> $data */
+                return $this->hydrate($data);
+            }
+            throw new HydratorException('Invalid JSON: Not an array');
+        } catch (\JsonException $e) {
+            throw new HydratorException('Invalid JSON: ' . $e->getMessage(), 0, $e);
+        }
     }
 
 

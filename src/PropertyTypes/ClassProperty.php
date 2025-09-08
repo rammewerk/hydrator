@@ -17,13 +17,22 @@ final class ClassProperty extends PropertyHandler {
         $type = $this->type;
         $nullable = $this->nullable;
         return static function (mixed $value) use ($type, $nullable) {
+
             if ($value instanceof $type) return $value;
 
             if ($nullable && (is_null($value) || $value === '')) {
                 return null;
             }
 
-            if (is_array($value) && class_exists($type)) {
+            if (!class_exists($type)) {
+                throw new HydratorException(sprintf('Class %s does not exist', $type));
+            }
+
+            if (is_object($value)) {
+                $value = (array)$value;
+            }
+
+            if (is_array($value)) {
                 try {
                     /** @var array<string, mixed> $value */
                     return new Hydrator($type)->hydrate($value);
@@ -31,7 +40,8 @@ final class ClassProperty extends PropertyHandler {
                     throw new HydratorException("Unable to hydrate child element of type $type: " . $e->getMessage(), $e->getCode(), $e);
                 }
             }
-            throw new HydratorException("Unable to convert value to $type");
+
+            throw new HydratorException("Unable to convert value of type " . gettype($value) . " to $type");
         };
     }
 

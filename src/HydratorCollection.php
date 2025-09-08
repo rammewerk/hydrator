@@ -11,12 +11,14 @@ final class HydratorCollection extends Collection {
 
     /**
      * @param Hydrator<TEntity> $hydrator
-     * @param array<int, array<string, mixed>> $source
+     * @param array<int, array<string, mixed>|object> $source
      */
     public function __construct(
         private readonly Hydrator $hydrator,
-        protected array $source
-    ) {}
+        array $source,
+    ) {
+        $this->source = array_map(static fn($i) => is_object($i) ? (array)$i : $i, $source);
+    }
 
 
 
@@ -26,7 +28,7 @@ final class HydratorCollection extends Collection {
      * @return TEntity
      */
     protected function getEntity(int $position) {
-        return $this->hydrator->hydrate( $this->source[$position] );
+        return $this->hydrator->hydrate($this->source[$position]);
     }
 
 

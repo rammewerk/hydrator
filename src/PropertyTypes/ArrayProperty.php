@@ -24,37 +24,19 @@ final class ArrayProperty extends PropertyHandler {
 
         return static function (mixed $value) use ($entity, $default): ?array {
 
-
-//            // Array of entities
-//            try {
-//                $hydrator = new Hydrator($mapEntity);
-//                /** @var array<int|string, mixed> $value */
-//                foreach ($value as $k => $v) {
-//                    if (is_array($v)) {
-//                        $value[$k] = $hydrator->hydrate($v);
-//                    } elseif ($v instanceof $entity) {
-//                        // keep as-is
-//                    } else {
-//                        throw new HydratorException("Array element at '$k' is not array nor $entity");
-//                    }
-//                }
-//                /** @var array $value */
-//                return $value;
-//            } catch (Throwable $e) {
-//                throw new HydratorException('Unable to hydrate array of ' . $entity . ': ' . $e->getMessage(), $e->getCode(), $e);
-//            }
-
-
             if ($entity && is_array($value)) {
                 try {
                     $hydrator = new Hydrator($entity);
                     /** @var array<int|string, mixed> $value */
                     foreach ($value as $k => $v) {
                         if ($v instanceof $entity) continue;
-                        $value[$k] = is_array($v)
-                            /** @phpstan-ignore-next-line Ignore the type of array */
-                            ? $hydrator->hydrate($v)
-                            : throw new HydratorException("Array element at '$k' is not array nor $entity");
+                        if (is_array($v)) {
+                            $value[$k] = $hydrator->hydrate($v);
+                        } else if (is_object($v)) {
+                            $value[$k] = $hydrator->hydrate((array)$v);
+                        } else {
+                            throw new HydratorException("Array element at '$k' is not array nor $entity");
+                        }
                     }
                 } catch (Throwable $e) {
                     throw new HydratorException('Unable to hydrate child element of type: ' . $entity, 0, $e);

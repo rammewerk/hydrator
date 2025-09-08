@@ -19,18 +19,19 @@ final class ArrayProperty extends PropertyHandler {
 
     protected function getConverter(): Closure {
 
-        $entity = $this->mapEntity;
         $default = $this->default ?? ($this->nullable ? [] : null);
+        $entity = $this->mapEntity;
+        $hydrator = $entity ? new Hydrator($entity) : null;
 
-        return static function (mixed $value) use ($entity, $default): ?array {
+        return static function (mixed $value) use ($entity, $hydrator, $default): ?array {
 
-            if ($entity && is_array($value)) {
+            if ($hydrator && is_array($value)) {
                 try {
-                    $hydrator = new Hydrator($entity);
                     /** @var array<int|string, mixed> $value */
                     foreach ($value as $k => $v) {
                         if ($v instanceof $entity) continue;
                         if (is_array($v)) {
+                            /** @var array<string, mixed> $v */
                             $value[$k] = $hydrator->hydrate($v);
                         } else if (is_object($v)) {
                             $value[$k] = $hydrator->hydrate((array)$v);
